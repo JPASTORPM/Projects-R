@@ -1,0 +1,136 @@
+---
+title: "Anova de una vía"
+author: "Junior Pastor PÉREZ MOLINA"
+date: "20 de octubre de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Cargo los datos desde la dirección donde esta guardados
+
+```{r, echo=TRUE}
+rm(list = ls()) #Remove all objects
+graphics.off()  #Remove all graphics
+cat("\014")     #Remove script in windows console
+
+Lechuga_hojas=read.delim("https://raw.githubusercontent.com/JPASTORPM/Database/master/Lechuga_hojas.csv",header=T,sep=";",dec=".")
+str(Lechuga_hojas)
+names(Lechuga_hojas)
+```
+
+## ANOVA, ¿Cuál aplicamos, Fisher ó Kruskal-Wallis?
+
+¿Fisher ó Kruskal-Wallis? Solo lo sabremos déspues de realizar la *aov()* para obtener los residuos y 
+aplicar *shapiro.test()* sobre los residuos y ver si se acepta o rechaza el supuesto de normalidad (p>0.05: Fisher; p<0.05: Kruskal-Wallis).
+
+El segundo paso es determinar si las repeticiones por tratamiento (n) son balanceado (mesmo número n) o no balanceados (diferente número n}) usando *tapply()*
+**Balanceado se refiere a mismo número de repeticiones (n) por tratamiento.**
+
+Vamos a realizar un ejemplo, la variable de interés es *c.hojas* (crecimiento del número de hojas) y el factor *tratamiento* (0%, 25%, 50%, 75% y 100% de concentración de abono orgánico.
+
+```{r, echo=TRUE}
+c.hojas <- aov(c.hojas ~ Tratamiento, data=Lechuga_hojas)
+shapiro.test(c.hojas$residuals) #Opción 1, ver p-value
+ifelse((shapiro.test(c.hojas$residuals))$p.value>0.05,"SE ACEPTA EL SUPUESTO DE NORMALIDAD", "SE RECHAZA EL SUPUESTO DE NORMALIDAD, DATOS ASIMÉTRICOS") #Opción 2, la función te dice
+
+#¿Cuando están balanceados? Cuando tiene el mismo número de repeticiónes por tratamiento
+balanceado<-tapply(Lechuga_hojas$c.hojas, Lechuga_hojas$Tratamiento, length)
+balanceado
+# Estos datos están balanceados 
+```
+
+## SE ACEPTA EL SUPUESTO DE NORMALIDAD y REPETICIONES POR TRATAMIENTO SON BALANCEADOS, debo aplicar Fisher with post-hoc Tukey HSD, de acuerdo con los siguientes códigos:
+
+```{r, echo=TRUE}
+c.hojas <- aov(c.hojas ~ Tratamiento, data=Lechuga_hojas) #Notar que aqui usamos " aov() "
+summary.lm(c.hojas)
+Comparacion<-TukeyHSD(c.hojas)
+plot(Comparacion)
+```
+
+
+## SE ACEPTA EL SUPUESTO DE NORMALIDAD y DATOS POR TRATAMIENTO SON NO BALANCEADOS, debo aplicar Fisher with post-hoc LSD, de acuerdo con los siguientes códigos:
+
+```{r, echo=TRUE}
+c.hojas<-oneway.test (c.hojas ~ Tratamiento, data=Lechuga_hojas) #Notar que aqui usamos " oneway.test() "
+c.hojas
+Comparacion<-pairwise.t.test (Lechuga_hojas$c.hojas, Lechuga_hojas$Tratamiento, p.adj = "none", exact= F) #Notar que usamos en p.adj= "none" para indicar que es LSD
+Comparacion<-ifelse(Comparacion$p.value<0.05, "Diferente", "Igual")
+Comparacion
+```
+
+
+## SE RECHAZA EL SUPUESTO DE NORMALIDAD, debo aplicar la opción no parametrica llamada " Kruskal Wallis " y post-hoc que va depender si los datos son balanceados (Bonferroni, muestras mayores a 6),  o no balanceados (LSD y/o muestras menores a 6) de acuerdo con los siguientes códigos:
+
+```{r, echo=TRUE}
+c.hojas<-kruskal.test (c.hojas ~ Tratamiento, data=Lechuga_hojas)
+c.hojas
+```
+
+## SE RECHAZA EL SUPUESTO DE NORMALIDAD y DATOS POR TRATAMIENTO SON BALANCEADOS cuyas muestras por tratamientos son mayores que 6: Kruskal Wallis con post-hoc Bonferroni
+
+```{r, echo=TRUE}
+c.hojas<-kruskal.test (c.hojas ~ Tratamiento, data=Lechuga_hojas)
+c.hojas
+Comparacion<-pairwise.wilcox.test(Lechuga_hojas$c.hojas, Lechuga_hojas$Tratamiento, p.adj = "bonferroni", exact= F)
+Comparacion<-ifelse(Comparacion$p.value<0.05, "Diferente", "Igual")
+Comparacion
+```
+
+
+## SE RECHAZA EL SUPUESTO DE NORMALIDAD y DATOS POR TRATAMIENTO SON NO BALANCEADOS cuyas muestras PUEDEN O NO SER mayores 6: Kruskal Wallis con post-hoc LSD
+
+```{r, echo=TRUE}
+c.hojas<-kruskal.test (c.hojas ~ Tratamiento, data=Lechuga_hojas)
+c.hojas
+Comparacion<-pairwise.wilcox.test (Lechuga_hojas$c.hojas, Lechuga_hojas$Tratamiento, p.adj = "none", exact= F) #Notar que usamos en p.adj= "none" para indicar que es LSD
+Comparacion<-ifelse(Comparacion$p.value<0.05, "Diferente", "Igual")
+Comparacion
+```
+
+## Ahora construimos el gráfico
+
+```{r, echo=TRUE, fig.width=7.5, fig.height=6.5}
+library(Rmisc)
+error.bar.vertical<-function(x, y, se.y, col){arrows(x, y-se.y, x, y+se.y, code=3, angle=90, length=0.25, col=col)}
+function.mean<-function(data, variable){
+    sum = summarySE(data, measurevar= variable, groupvars=c("Tratamiento_2"), na.rm=TRUE)
+    sum<-sum[c(1,3,5,6)]
+    sum<-data.frame(sum)
+    names(sum)<-c("Tratamiento","Mean","S.E.","C.I.95")
+    sum[order(sum[,1], decreasing = TRUE),]
+    sum$Tratamiento_2<-c("0%","25%","50%","75%","100%")
+    sum
+}
+#--------------
+Lechuga_hojas$Tratamiento_2<-as.character(Lechuga_hojas$Tratamiento)
+Lechuga_hojas$Tratamiento_2[Lechuga_hojas$Tratamiento=="0%"]<-"1"
+Lechuga_hojas$Tratamiento_2[Lechuga_hojas$Tratamiento=="25%"]<-"2"
+Lechuga_hojas$Tratamiento_2[Lechuga_hojas$Tratamiento=="50%"]<-"3"
+Lechuga_hojas$Tratamiento_2[Lechuga_hojas$Tratamiento=="75%"]<-"4"
+Lechuga_hojas$Tratamiento_2[Lechuga_hojas$Tratamiento=="100%"]<-"5"
+data.c.hojas<-function.mean(data=Lechuga_hojas, variable="c.hojas")
+#--------------
+par(mfrow=c(1,1),mgp = c(1.75,0.5,0), mar = c(3,3,1,1))
+barplot(data.c.hojas$Mean, beside=T, col = c("gray"),border=c("black"),names.arg = ((as.character(data.c.hojas$Tratamiento_2))),legend.text=FALSE,ylim=c(0,7),ylab="Crecimiento número hojas (± E.E.)",xlab="Concentración de abono orgánico",main="")
+error.bar.vertical(c(0.7, 1.9, 3.15, 4.3, 5.5),data.c.hojas$Mean,data.c.hojas$S.E., col="red")
+text(x= c(0.7, 1.9, 3.15, 4.3, 5.5), y= data.c.hojas$Mean*1.125, labels=c("a", "b", "b", "c", "c"), col="darkred", cex=1.25)
+legend("topright", expression(paste("F= 19.55; g.l.= 4, 65; p<0.05")), col="darkred", merge = F, bg = NULL, bty='n', cex=1.25)
+box()
+```
+
+
+
+
+**Fig. 1.** Crecimiento del número de hojas de *L. sativa* en cuatro tratamiento de concentración de abono orgánico (0%, 25%, 50% y 100%). Letras iguales muestran no diferencias estadísticamente significativas entre los tratamientos, *Tukey HSD* (p>0.05). 
+
+
+
+
+.
+
+
+
